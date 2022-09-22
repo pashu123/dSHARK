@@ -16,6 +16,7 @@ from shark.iree_utils.compile_utils import (
     get_iree_compiled_module,
     get_results,
     export_iree_module_to_vmfb,
+    load_flatbuffer,
 )
 from shark.iree_utils._common import check_device_drivers, device_driver_info
 from shark.parser import shark_args
@@ -91,11 +92,4 @@ class SharkRunner:
             inputs,
             self.iree_config,
             self.mlir_dialect,
-        )
-
-    # TODO: Instead of passing directory and having names decided by the module
-    # , user may want to save the module with manual names.
-    def save_module(self, dir=os.getcwd()):
-        return export_iree_module_to_vmfb(
-            self.model, self.device, dir, self.mlir_dialect
         )

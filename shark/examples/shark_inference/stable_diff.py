@@ -146,8 +146,6 @@ if __name__ == "__main__":
         args.mlir_loc,
     )
 
-    # torch.jit.script(unet)
-
     scheduler = LMSDiscreteScheduler(
         beta_start=0.00085,
         beta_end=0.012,
