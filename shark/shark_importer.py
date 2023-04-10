@@ -293,6 +293,43 @@ def get_f16_inputs(inputs, is_f16, f16_input_mask):
     return tuple(f16_masked_inputs)
 
 
+def upcast_attention_block(fx_g):
+    import torch
+    for node in fx_g.graph.nodes:
+        if node.target in [torch.ops.aten._softmax]:
+            # This is a very strict check.
+            # [TODO] Relax to check graph with the form "bmm -> (unary) -> softmax -> (unary) -> bmm"
+            if node.args[0].target in [torch.ops.aten._unsafe_view] and node.args[0].args[0].target in [torch.ops.aten.bmm]:
+                print("found an attention block let's upcast it.")
+                bmm_node = node.args[0].args[0]
+                softmax_node = node
+            with fx_g.graph.inserting_before(bmm_node):
+                lhs = bmm_node.args[0]
+                rhs = bmm_node.args[1]
+                upcast_lhs = fx_g.graph.call_function(
+                    torch.ops.aten._to_copy,
+                    args=(lhs,),
+                    kwargs={"dtype": torch.float32},
+                )
+                upcast_rhs = fx_g.graph.call_function(
+                    torch.ops.aten._to_copy,
+                    args=(rhs,),
+                    kwargs={"dtype": torch.float32},
+                )
+                bmm_node.args = (upcast_lhs, upcast_rhs)
+            with fx_g.graph.inserting_before(softmax_node):
+                new_node = fx_g.graph.call_function(
+                    torch.ops.aten._to_copy,
+                    args=(softmax_node,),
+                    kwargs={"dtype": torch.float16},
+                )
+                softmax_node.append(new_node)
+                softmax_node.replace_all_uses_with(new_node)
+                new_node.args = (softmax_node,)
+                new_node.kwargs = {"dtype": torch.float16}
+        
+    fx_g.graph.lint()
+
 def transform_fx(fx_g):
     import torch
 
@@ -441,6 +478,7 @@ def import_with_fx(
     if is_f16:
         fx_g = fx_g.half()
         transform_fx(fx_g)
+        upcast_attention_block(fx_g)
         fx_g.recompile()
 
     if training:
